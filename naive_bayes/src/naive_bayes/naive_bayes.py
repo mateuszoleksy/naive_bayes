@@ -7,6 +7,12 @@ def is_number(s):
         return True
     except:
         return False
+    
+def normalize_probs(probs):
+    total = sum(probs)
+    if total == 0:
+        return [1.0 / len(probs)] * len(probs)
+    return [p / total for p in probs]
 
 def read_data(x_path="input_x.txt", y_path="input_y.txt"):
     """
@@ -51,13 +57,15 @@ def read_data(x_path="input_x.txt", y_path="input_y.txt"):
             if val not in (0.0, 1.0):
                 raise ValueError(f"Etykiety muszą być 0 lub 1. Znaleziono: {val}")
             Y.append(int(val))
+    # Etykiety pozostawiamy jako 0/1 (int), nie normalizujemy ich do prawdopodobieństw
+    X = [[int(v) for v in row] for row in X]  # konwertuj na int 0/1
 
     if len(X) != len(Y):
         raise ValueError(f"Liczba wierszy X ({len(X)}) nie zgadza się z liczbą etykiet Y ({len(Y)}).")
 
     return X, Y, feature_names
 
-def train_algorithm(X, Y):
+def train_algorithm(X, Y, smoothing=1.0):
     """
     Trenuje NB na danych binarnych cechach (0/1).
     Zwraca: (model, prior_pos, prior_neg)
@@ -85,8 +93,16 @@ def train_algorithm(X, Y):
                     count_pos += 1
                 else:
                     count_neg += 1
-        pos_prob = (count_pos) / (num_pos + 2) if num_pos > 0 else 0.5
-        neg_prob = (count_neg) / (num_neg + 2) if num_neg > 0 else 0.5
+        # Laplace smoothing (binary feature): (count + alpha) / (N_class + 2*alpha)
+        if num_pos > 0:
+            pos_prob = (count_pos + smoothing) / (num_pos + 2 * smoothing)
+        else:
+            pos_prob = 0.5
+
+        if num_neg > 0:
+            neg_prob = (count_neg + smoothing) / (num_neg + 2 * smoothing)
+        else:
+            neg_prob = 0.5
 
         model[j] = {"positive": pos_prob, "negative": neg_prob}
 
