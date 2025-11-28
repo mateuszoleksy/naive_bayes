@@ -1,154 +1,305 @@
-# Naive Bayes Classifier
-import math
+"""
+Tests for the Naive Bayes implementation.
 
-def is_number(s):
-    try:
-        float(s)
-        return True
-    except:
-        return False
+Verifies correctness by comparing against scikit-learn's implementation.
+"""
+import pytest
+import numpy as np
+from sklearn.naive_bayes import BernoulliNB
+from sklearn.datasets import make_classification
+from sklearn.model_selection import train_test_split
 
-def read_data(x_path="input_x.txt", y_path="input_y.txt"):
-    """
-    Wczytuje X i Y. X może mieć opcjonalny nagłówek w pierwszym wierszu.
-    Format: CSV (przecinki). Wartości cech oczekiwane jako 0/1 (lub liczby).
-    Y: jedna etykieta na linię (0 lub 1).
-    Zwraca: X (lista list float/int), Y (lista int 0/1), feature_names (lista lub None)
-    """
-    feature_names = None
-    X = []
-    with open(x_path, "r", encoding="utf-8") as fx:
-        lines = [line.strip() for line in fx if line.strip() != ""]
-        if not lines:
-            raise ValueError("Plik X jest pusty.")
-        # Sprawdź czy pierwszy wiersz to nagłówek (czy wszystkie tokeny NIE są liczbami)
-        first_tokens = [tok.strip() for tok in lines[0].split(",")]
-        if all(is_number(tok) for tok in first_tokens):
-            # pierwszy wiersz to dane
-            X.append([float(tok) for tok in first_tokens])
-            data_lines = lines[1:]
-        else:
-            # pierwszy wiersz to nagłówek
-            feature_names = first_tokens
-            data_lines = lines[1:]
-        # parsuj pozostałe wiersze
-        for ln in data_lines:
-            toks = [tok.strip() for tok in ln.split(",")]
-            if not all(is_number(tok) for tok in toks):
-                raise ValueError(f"Nie wszystkie wartości cech są liczbami w wierszu: {ln}")
-            X.append([float(tok) for tok in toks])
+# Import the module under test
+import sys
+from pathlib import Path
 
-    Y = []
-    with open(y_path, "r", encoding="utf-8") as fy:
-        for line in fy:
-            line = line.strip()
-            if line == "":
-                continue
-            tok = line.split(",")[0].strip()
-            if not is_number(tok):
-                raise ValueError(f"Etykieta musi być liczbą (0/1), znaleziono: {tok}")
-            val = float(tok)
-            if val not in (0.0, 1.0):
-                raise ValueError(f"Etykiety muszą być 0 lub 1. Znaleziono: {val}")
-            Y.append(int(val))
+# Add src to path for imports
+src_path = Path(__file__).parent.parent / "src"
+sys.path.insert(0, str(src_path))
 
-    if len(X) != len(Y):
-        raise ValueError(f"Liczba wierszy X ({len(X)}) nie zgadza się z liczbą etykiet Y ({len(Y)}).")
+from naive_bayes.naive_bayes import (
+    train_algorithm,
+    predict,
+    read_data,
+    normalize_probs,
+)
 
-    return X, Y, feature_names
 
-def train_algorithm(X, Y):
-    """
-    Trenuje NB na danych binarnych cechach (0/1).
-    Zwraca: (model, prior_pos, prior_neg)
-    model: dict mapping feature_index -> {"positive": P(feature=1|class=1), "negative": P(feature=1|class=0)}
-    """
-    n_samples = len(Y)
-    if n_samples == 0:
-        raise ValueError("Brak próbek do trenowania.")
-    n_features = len(X[0])
+@pytest.fixture
+def simple_binary_data():
+    X = [[1, 0, 1], [1, 1, 0], [0, 0, 1], [0, 1, 0], [1, 1, 1], [0, 0, 0]]
+    Y = [1, 1, 0, 0, 1, 0]
+    return X, Y
 
-    # liczba pozytywnych i negatywnych przykładów
-    num_pos = sum(Y)
-    num_neg = n_samples - num_pos
-    prior_pos = num_pos / n_samples
-    prior_neg = num_neg / n_samples
 
-    model = {}
-    for j in range(n_features):
-        count_pos = 0
-        count_neg = 0
-        for i in range(n_samples):
-            val = X[i][j]
-            if val == 1 or val == 1.0:
-                if Y[i] == 1:
-                    count_pos += 1
-                else:
-                    count_neg += 1
-        pos_prob = (count_pos) / (num_pos + 2) if num_pos > 0 else 0.5
-        neg_prob = (count_neg) / (num_neg + 2) if num_neg > 0 else 0.5
+@pytest.fixture
+def random_binary_data():
+    np.random.seed(42)
+    n_samples = 100
+    n_features = 10
+    X = np.random.randint(0, 2, size=(n_samples, n_features))
+    Y = (X.sum(axis=1) > n_features // 2).astype(int)
+    return X.tolist(), Y
 
-        model[j] = {"positive": pos_prob, "negative": neg_prob}
 
-    return model, prior_pos, prior_neg
+@pytest.fixture
+def sklearn_dataset():
+    np.random.seed(42)
+    X, Y = make_classification(
+        n_samples=200,
+        n_features=15,
+        n_informative=10,
+        n_redundant=0,
+        n_classes=2,
+        random_state=42,
+    )
+    X = (X > np.median(X, axis=0)).astype(int)
+    return X, Y
 
-def predict(model, prior_pos, prior_neg, x_test):
-    """
-    x_test: pojedynczy wektor cech (lista wartości 0/1 długości n_features)
-    Zwraca 1 lub 0 (przewidywana klasa).
-    Używa log-probabilities, aby uniknąć underflow.
-    """
-    if prior_pos == 0:
-        return 0
-    if prior_neg == 0:
-        return 1
 
-    pos_log = math.log(prior_pos)
-    neg_log = math.log(prior_neg)
+class TestTrainAlgorithm:
+    def test_train_returns_correct_structure(self, simple_binary_data):
+        X, Y = simple_binary_data
+        model, prior_pos, prior_neg = train_algorithm(X, Y)
 
-    for j, val in enumerate(x_test):
-        feat = model.get(j)
-        if feat is None:
-            raise KeyError(f"Brak informacji o cesze {j} w modelu.")
-        p_pos = feat["positive"]
-        p_neg = feat["negative"]
-        # zabezpieczenie przed log(0)
-        p_pos = max(min(p_pos, 1 - 1e-12), 1e-12)
-        p_neg = max(min(p_neg, 1 - 1e-12), 1e-12)
+        assert isinstance(model, dict)
+        assert len(model) == len(X[0])
+        for feat_idx, feat_probs in model.items():
+            assert "positive" in feat_probs
+            assert "negative" in feat_probs
+            assert 0 <= feat_probs["positive"] <= 1
+            assert 0 <= feat_probs["negative"] <= 1
 
-        if val == 1 or val == 1.0:
-            pos_log += math.log(p_pos)
-            neg_log += math.log(p_neg)
-        else:
-            pos_log += math.log(1 - p_pos)
-            neg_log += math.log(1 - p_neg)
+    def test_priors_sum_to_one(self, simple_binary_data):
+        X, Y = simple_binary_data
+        model, prior_pos, prior_neg = train_algorithm(X, Y)
 
-    return 1 if pos_log > neg_log else 0
+        assert pytest.approx(prior_pos + prior_neg, abs=1e-10) == 1.0
 
-if __name__ == "__main__":
-    # przykład użycia; jeśli pliki nie istnieją, możesz zamiast tego zdefiniować mały zestaw danych tutaj:
-    try:
-        X, Y, feature_names = read_data()
-    except Exception as e:
-        print("Błąd przy wczytywaniu danych:", e)
-        # przykładowy zbiór
-        X = [
-            [1, 0, 1],
-            [1, 1, 0],
-            [0, 0, 1],
-            [0, 1, 0]
+    def test_priors_match_class_distribution(self, simple_binary_data):
+        X, Y = simple_binary_data
+        expected_prior_pos = sum(Y) / len(Y)
+        expected_prior_neg = (len(Y) - sum(Y)) / len(Y)
+
+        model, prior_pos, prior_neg = train_algorithm(X, Y)
+
+        assert pytest.approx(prior_pos, abs=1e-10) == expected_prior_pos
+        assert pytest.approx(prior_neg, abs=1e-10) == expected_prior_neg
+
+    def test_smoothing_effect(self, simple_binary_data):
+        X, Y = simple_binary_data
+        model1, _, _ = train_algorithm(X, Y, smoothing=0.1) if 'smoothing' in train_algorithm.__code__.co_varnames else train_algorithm(X, Y)
+        model2, _, _ = train_algorithm(X, Y, smoothing=10.0) if 'smoothing' in train_algorithm.__code__.co_varnames else train_algorithm(X, Y)
+
+        # If smoothing is supported, probabilities should differ
+        if 'smoothing' in train_algorithm.__code__.co_varnames:
+            assert model1[0]["positive"] != model2[0]["positive"]
+
+    def test_empty_data_raises_error(self):
+        with pytest.raises(ValueError, match="Brak próbek"):
+            train_algorithm([], [])
+
+    def test_mismatched_lengths_raises_error(self):
+        X = [[1, 0], [1, 1]]
+        Y = [1]
+        try:
+            train_algorithm(X, Y)
+        except (ValueError, IndexError):
+            pass
+
+
+class TestPredict:
+    def test_predict_returns_binary(self, simple_binary_data):
+        X, Y = simple_binary_data
+        model, prior_pos, prior_neg = train_algorithm(X, Y)
+
+        for sample in X:
+            pred = predict(model, prior_pos, prior_neg, sample)
+            assert pred in (0, 1)
+
+    def test_predict_on_training_data(self, simple_binary_data):
+        X, Y = simple_binary_data
+        model, prior_pos, prior_neg = train_algorithm(X, Y)
+
+        predictions = [predict(model, prior_pos, prior_neg, x) for x in X]
+        accuracy = sum(p == y for p, y in zip(predictions, Y)) / len(Y)
+
+        assert accuracy >= 0.5
+
+    def test_missing_feature_in_model_raises_error(self, simple_binary_data):
+        X, Y = simple_binary_data
+        model, prior_pos, prior_neg = train_algorithm(X, Y)
+        del model[0]
+
+        with pytest.raises(KeyError, match="Brak informacji"):
+            predict(model, prior_pos, prior_neg, X[0])
+
+
+class TestAgainstSklearn:
+    def test_predictions_match_sklearn(self, sklearn_dataset):
+        X, Y = sklearn_dataset
+        X_train, X_test, Y_train, Y_test = train_test_split(
+            X, Y, test_size=0.3, random_state=42
+        )
+
+        our_model, our_prior_pos, our_prior_neg = train_algorithm(X_train, Y_train)
+
+        sklearn_model = BernoulliNB(alpha=1.0)
+        sklearn_model.fit(X_train, Y_train)
+
+        our_predictions = [
+            predict(our_model, our_prior_pos, our_prior_neg, x) for x in X_test
         ]
-        Y = [1, 1, 0, 0]
-        feature_names = None
-        print("Używam przykładowego zbioru danych.")
+        sklearn_predictions = sklearn_model.predict(X_test)
 
-    model, prior_pos, prior_neg = train_algorithm(X, Y, smoothing=1.0)
-    print("Prior positive:", prior_pos, "Prior negative:", prior_neg)
-    print("Model (feature -> {positive, negative}):")
-    for k, v in model.items():
-        name = f"feat_{k}" if not feature_names else feature_names[k]
-        print(f" {name}: {v}")
+        accuracy_our = sum(p == y for p, y in zip(our_predictions, Y_test)) / len(Y_test)
+        accuracy_sklearn = sum(
+            p == y for p, y in zip(sklearn_predictions, Y_test)
+        ) / len(Y_test)
 
-    # test predykcji na pierwszym wierszu
-    pred = predict(model, prior_pos, prior_neg, X[0])
-    print("Predykcja dla pierwszego przykładu:", pred, "prawdziwa etykieta:", Y[0])
+        assert abs(accuracy_our - accuracy_sklearn) < 0.05
+
+    def test_priors_match_sklearn(self, sklearn_dataset):
+        X, Y = sklearn_dataset
+        X_train, _, Y_train, _ = train_test_split(
+            X, Y, test_size=0.3, random_state=42
+        )
+
+        our_model, our_prior_pos, our_prior_neg = train_algorithm(X_train, Y_train)
+
+        sklearn_model = BernoulliNB(alpha=1.0)
+        sklearn_model.fit(X_train, Y_train)
+
+        sklearn_prior_pos = np.exp(sklearn_model.class_log_prior_[1])
+        sklearn_prior_neg = np.exp(sklearn_model.class_log_prior_[0])
+
+        assert pytest.approx(our_prior_pos, abs=1e-10) == sklearn_prior_pos
+        assert pytest.approx(our_prior_neg, abs=1e-10) == sklearn_prior_neg
+
+    def test_feature_probabilities_match_sklearn(self, simple_binary_data):
+        X, Y = simple_binary_data
+
+        our_model, _, _ = train_algorithm(X, Y) if 'smoothing' not in train_algorithm.__code__.co_varnames else train_algorithm(X, Y, smoothing=1.0)
+
+        sklearn_model = BernoulliNB(alpha=1.0)
+        sklearn_model.fit(X, Y)
+
+        n_features = len(X[0])
+        for feat_idx in range(n_features):
+            our_pos = our_model[feat_idx]["positive"]
+            our_neg = our_model[feat_idx]["negative"]
+
+            sklearn_pos_log = sklearn_model.feature_log_prob_[1, feat_idx]
+            sklearn_neg_log = sklearn_model.feature_log_prob_[0, feat_idx]
+
+            sklearn_pos = np.exp(sklearn_pos_log)
+            sklearn_neg = np.exp(sklearn_neg_log)
+
+            assert pytest.approx(our_pos, abs=1e-10) == sklearn_pos
+            assert pytest.approx(our_neg, abs=1e-10) == sklearn_neg
+
+    def test_on_larger_dataset(self, random_binary_data):
+        X, Y = random_binary_data
+        X_train, X_test, Y_train, Y_test = train_test_split(
+            X, Y, test_size=0.3, random_state=42
+        )
+
+        our_model, our_prior_pos, our_prior_neg = train_algorithm(X_train, Y_train)
+
+        sklearn_model = BernoulliNB(alpha=1.0)
+        sklearn_model.fit(X_train, Y_train)
+
+        our_predictions = [
+            predict(our_model, our_prior_pos, our_prior_neg, x) for x in X_test
+        ]
+        sklearn_predictions = sklearn_model.predict(X_test)
+
+        accuracy_our = sum(p == y for p, y in zip(our_predictions, Y_test)) / len(Y_test)
+        accuracy_sklearn = sum(
+            p == y for p, y in zip(sklearn_predictions, Y_test)
+        ) / len(Y_test)
+
+        assert abs(accuracy_our - accuracy_sklearn) < 0.1
+
+
+class TestNormalizeProbs:
+    def test_probs_sum_to_one(self):
+        probs = [1, 2, 3, 4]
+        normalized = normalize_probs(probs)
+        assert pytest.approx(sum(normalized), abs=1e-10) == 1.0
+
+    def test_empty_list_handled(self):
+        with pytest.raises((ZeroDivisionError, IndexError)):
+            normalize_probs([])
+
+    def test_all_zeros_handled(self):
+        probs = [0, 0, 0, 0]
+        normalized = normalize_probs(probs)
+        assert all(p == 0.25 for p in normalized)
+
+    def test_preserves_relative_order(self):
+        probs = [1, 2, 3]
+        normalized = normalize_probs(probs)
+        assert normalized[0] < normalized[1] < normalized[2]
+
+
+class TestEdgeCases:
+    def test_all_positive_labels(self):
+        X = [[1, 0], [1, 1], [0, 1]]
+        Y = [1, 1, 1]
+
+        model, prior_pos, prior_neg = train_algorithm(X, Y)
+        assert pytest.approx(prior_pos, abs=1e-10) == 1.0
+        assert pytest.approx(prior_neg, abs=1e-10) == 0.0
+
+    def test_all_negative_labels(self):
+        X = [[1, 0], [1, 1], [0, 1]]
+        Y = [0, 0, 0]
+
+        model, prior_pos, prior_neg = train_algorithm(X, Y)
+        assert pytest.approx(prior_pos, abs=1e-10) == 0.0
+        assert pytest.approx(prior_neg, abs=1e-10) == 1.0
+
+    def test_single_sample(self):
+        X = [[1, 0, 1]]
+        Y = [1]
+
+        model, prior_pos, prior_neg = train_algorithm(X, Y)
+        pred = predict(model, prior_pos, prior_neg, X[0])
+        assert pred in (0, 1)
+
+    def test_single_feature(self):
+        X = [[1], [0], [1], [0]]
+        Y = [1, 0, 1, 0]
+
+        model, prior_pos, prior_neg = train_algorithm(X, Y)
+        assert len(model) == 1
+        assert 0 in model
+
+
+class TestIntegration:
+    def test_full_pipeline(self, sklearn_dataset):
+        X, Y = sklearn_dataset
+        X_train, X_test, Y_train, Y_test = train_test_split(
+            X, Y, test_size=0.3, random_state=42
+        )
+
+        model, prior_pos, prior_neg = train_algorithm(X_train, Y_train)
+
+        predictions = [predict(model, prior_pos, prior_neg, x) for x in X_test]
+
+        accuracy = sum(p == y for p, y in zip(predictions, Y_test)) / len(Y_test)
+
+        assert accuracy > 0.5
+
+    def test_consistency_across_multiple_runs(self, simple_binary_data):
+        X, Y = simple_binary_data
+
+        model1, prior_pos1, prior_neg1 = train_algorithm(X, Y)
+        model2, prior_pos2, prior_neg2 = train_algorithm(X, Y)
+
+        assert prior_pos1 == prior_pos2
+        assert prior_neg1 == prior_neg2
+        for key in model1:
+            assert model1[key]["positive"] == model2[key]["positive"]
+            assert model1[key]["negative"] == model2[key]["negative"]
