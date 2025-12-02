@@ -7,12 +7,6 @@ def is_number(s):
         return True
     except:
         return False
-    
-def normalize_probs(probs):
-    total = sum(probs)
-    if total == 0:
-        return [1.0 / len(probs)] * len(probs)
-    return [p / total for p in probs]
 
 def read_data(x_path="input_x.txt", y_path="input_y.txt"):
     """
