@@ -1,5 +1,5 @@
-free, offer, attachments
-1,1,1
-1,1,0
-0,1,0
-1,0,1
+free, offer, length
+1,1,120
+1,1,80
+0,1,90
+1,0,40

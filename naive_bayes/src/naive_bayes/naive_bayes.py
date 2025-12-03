@@ -1,19 +1,49 @@
 # Naive Bayes Classifier
 import math
 
+''' So there is a problem with encoding the bigger features like length, the use the 50/50'''
+
 def is_number(s):
     try:
         float(s)
         return True
     except:
         return False
+    
+# Funkcja normalizacji etykiet Y (zachowana z Twojego szablonu)
+def normalize_probs(probs):
+    total = sum(probs)
+    if total == 0:
+        return [1.0 / len(probs)] * len(probs)
+    return [p / total for p in probs]
+
+def normalize_feature_by_max_half(X):
+    """
+    Normalizuje wszystkie cechy X do formatu binarnego (0/1).
+    Wymaga, aby X było macierzą. Oblicza globalne maksimum i stosuje próg Max/2.
+    """
+    if not X:
+        return []
+
+    all_values = [v for row in X for v in row]
+    if not all_values:
+        return X
+    
+    max_val = max(all_values)
+    if max_val <= 1.0:
+        return [[int(v) for v in row] for row in X]
+
+    threshold = max_val / 2.0
+    normalized_X = []
+    for row in X:
+        normalized_row = [1 if val >= threshold else 0 for val in row]
+        normalized_X.append(normalized_row)
+        
+    return normalized_X
 
 def read_data(x_path="input_x.txt", y_path="input_y.txt"):
     """
-    Wczytuje X i Y. X może mieć opcjonalny nagłówek w pierwszym wierszu.
-    Format: CSV (przecinki). Wartości cech oczekiwane jako 0/1 (lub liczby).
-    Y: jedna etykieta na linię (0 lub 1).
-    Zwraca: X (lista list float/int), Y (lista int 0/1), feature_names (lista lub None)
+    Wczytuje X i Y. Dane X są normalizowane binarnie (0/1) za pomocą progu Max/2.
     """
     feature_names = None
     X = []
@@ -21,22 +51,21 @@ def read_data(x_path="input_x.txt", y_path="input_y.txt"):
         lines = [line.strip() for line in fx if line.strip() != ""]
         if not lines:
             raise ValueError("Plik X jest pusty.")
-        # Sprawdź czy pierwszy wiersz to nagłówek (czy wszystkie tokeny NIE są liczbami)
+            
         first_tokens = [tok.strip() for tok in lines[0].split(",")]
-        if all(is_number(tok) for tok in first_tokens):
-            # pierwszy wiersz to dane
-            X.append([float(tok) for tok in first_tokens])
-            data_lines = lines[1:]
-        else:
-            # pierwszy wiersz to nagłówek
+        data_lines = lines
+        
+        if not all(is_number(tok) for tok in first_tokens):
             feature_names = first_tokens
             data_lines = lines[1:]
-        # parsuj pozostałe wiersze
+        
         for ln in data_lines:
             toks = [tok.strip() for tok in ln.split(",")]
             if not all(is_number(tok) for tok in toks):
                 raise ValueError(f"Nie wszystkie wartości cech są liczbami w wierszu: {ln}")
             X.append([float(tok) for tok in toks])
+
+    X = normalize_feature_by_max_half(X)
 
     Y = []
     with open(y_path, "r", encoding="utf-8") as fy:
@@ -51,9 +80,7 @@ def read_data(x_path="input_x.txt", y_path="input_y.txt"):
             if val not in (0.0, 1.0):
                 raise ValueError(f"Etykiety muszą być 0 lub 1. Znaleziono: {val}")
             Y.append(int(val))
-    # Etykiety pozostawiamy jako 0/1 (int), nie normalizujemy ich do prawdopodobieństw
-    X = [[int(v) for v in row] for row in X]  # konwertuj na int 0/1
-
+            
     if len(X) != len(Y):
         raise ValueError(f"Liczba wierszy X ({len(X)}) nie zgadza się z liczbą etykiet Y ({len(Y)}).")
 
