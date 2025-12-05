@@ -140,7 +140,6 @@ def predict(model, prior_pos, prior_neg, x_test):
             raise KeyError(f"No information about feature {j} in the model.")
         p_pos = feat["positive"]
         p_neg = feat["negative"]
-        # zabezpieczenie przed log(0)
         p_pos = max(min(p_pos, 1 - 1e-12), 1e-12)
         p_neg = max(min(p_neg, 1 - 1e-12), 1e-12)
 

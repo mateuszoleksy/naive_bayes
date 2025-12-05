@@ -1,5 +1,7 @@
 # naive_bayes
 
+Author: Mateusz Oleksy, Tester: Mikołaj Gruszka
+
 A lightweight Naive Bayes classifier example in Python - a simple implementation for binary features (0/1).
 
 Purpose: educational code demonstrating a Naive Bayes classifier with Laplace smoothing and basic feature normalization.
