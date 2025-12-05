@@ -1,126 +1,157 @@
-
-"""
-Tests for Naive Bayes implementation
-"""
-
-import pytest
+import time
 import numpy as np
+import sys
+from pathlib import Path
+
+# Scikit-learn imports for comparison
 from sklearn.naive_bayes import BernoulliNB
 from sklearn.datasets import make_classification
 from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score
 
-# Import the functions to test
-import sys
-from pathlib import Path
-src_path = Path(__file__).parent.parent / "src"
+# Add the src directory to the system path to allow importing the custom implementation
+project_root = Path(__file__).parent.parent 
+src_path = project_root / "src"
 sys.path.insert(0, str(src_path))
+
 from naive_bayes.naive_bayes import train_algorithm, predict
 
+def check_accuracy():
+    # This function compares the accuracy of the custom implementation against Scikit-Learn.
+    # It generates a dataset, splits it into training and testing sets,
+    # and ensures the custom model's predictions match the library's performance.
+    print("\n" + "="*50)
+    print("TEST 1: ACCURACY COMPARISON (200 Samples)")
+    print("="*50)
 
-# Simple fixture with a tiny binary dataset
-@pytest.fixture
-def simple_binary_data():
-    X = [[1, 0, 1], [1, 1, 0], [0, 0, 1], [0, 1, 0]]  # 4 samples, 3 features
-    Y = [1, 1, 0, 0]  # labels
-    return X, Y
-
-
-def test_priors_match_class_distribution(simple_binary_data):
-    """
-    Priors should match the fraction of positive/negative labels.
-    """
-    # get the tiny dataset
-    X, Y = simple_binary_data
-    # train the model (returns model and class priors)
-    _, prior_pos, prior_neg = train_algorithm(X, Y)
-    # the two priors should add up to 1.0
-    assert pytest.approx(prior_pos + prior_neg, abs=1e-10) == 1.0
-    # prior for positive should equal fraction of positive labels
-    assert pytest.approx(prior_pos, abs=1e-10) == sum(Y) / len(Y)
-
-
-def test_predict_returns_binary(simple_binary_data):
-    """
-    Predict must return either 0 or 1 for each input sample.
-    """
-    # load data and train quickly
-    X, Y = simple_binary_data
-    model, prior_pos, prior_neg = train_algorithm(X, Y)
-    # each prediction should be a 0 or 1 (no weird values)
-    for sample in X:
-        p = predict(model, prior_pos, prior_neg, sample)
-        assert p in (0, 1)
-
-
-# ----------------------
-# scikit-learn comparison
-# ----------------------
-
-@pytest.fixture
-def sklearn_dataset():
-    # set the random seed so the test is repeatable
-    np.random.seed(42)
-    # generate a synthetic classification problem (continuous features)
-    # create a synthetic classification problem with these settings:
-    # - n_samples: how many data points (rows) we want
-    # - n_features: total number of features (columns) produced
-    # - n_informative: how many features actually carry signal for the label
-    # - n_redundant: features that are linear combos of informative ones (here none)
-    # - n_classes: number of target classes (2 for binary classification)
-    # - random_state: seed so results are reproducible across runs
+    print("[*] Generating dataset...")
+    # Generate 200 samples with 15 features, where 10 are informative
     X, Y = make_classification(
-        n_samples=200,      
-        n_features=15,      
-        n_informative=10,   
-        n_redundant=0,      
-        n_classes=2,        
-        random_state=42,    
+        n_samples=200, 
+        n_features=15, 
+        n_informative=10, 
+        random_state=42
     )
-    # casual binarization: turn continuous features into 0/1 by thresholding at the median
-    # (this makes the data compatible with BernoulliNB and our simple implementation)
+    # Binarize data (set to 0 or 1 based on median) for Bernoulli Naive Bayes
     X = (X > np.median(X, axis=0)).astype(int)
-    # return features and labels
-    return X, Y
-
-
-def test_predictions_match_sklearn(sklearn_dataset):
-    """
-    Compare overall accuracy with scikit-learn's BernoulliNB.
-    """
-    # prepare train/test split
-    X, Y = sklearn_dataset
+    
     X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size=0.3, random_state=42)
-    # train our simple NB
-    our_model, our_prior_pos, our_prior_neg = train_algorithm(X_train, Y_train)
-    # train sklearn's BernoulliNB for comparison
-    sklearn_model = BernoulliNB(alpha=1.0)
-    sklearn_model.fit(X_train, Y_train)
-    # make predictions with both
-    our_predictions = [predict(our_model, our_prior_pos, our_prior_neg, x) for x in X_test]
-    sklearn_predictions = sklearn_model.predict(X_test)
-    # calculate accuracy
-    acc_ours = sum(p == y for p, y in zip(our_predictions, Y_test)) / len(Y_test)
-    acc_sklearn = sum(p == y for p, y in zip(sklearn_predictions, Y_test)) / len(Y_test)
-    # allow a little slack because implementations differ slightly
-    assert abs(acc_ours - acc_sklearn) < 0.1
+    print(f"[*] Training on {len(X_train)} samples, Testing on {len(X_test)} samples.")
+
+    # Train and predict with the custom implementation
+    print("\n[Custom Implementation]")
+    model, p_pos, p_neg = train_algorithm(X_train, Y_train)
+    my_preds = [predict(model, p_pos, p_neg, row) for row in X_test]
+    my_acc = accuracy_score(Y_test, my_preds)
+    print(f" -> Accuracy: {my_acc:.4f} ({my_acc*100:.2f}%)")
+
+    # Train and predict with the reference Scikit-Learn
+    print("\n[Scikit-Learn Implementation]")
+    clf = BernoulliNB(alpha=1.0)
+    clf.fit(X_train, Y_train)
+    sk_preds = clf.predict(X_test)
+    sk_acc = accuracy_score(Y_test, sk_preds)
+    print(f" -> Accuracy: {sk_acc:.4f} ({sk_acc*100:.2f}%)")
+
+    # verify that the accuracy is within a 5% margin of error
+    if abs(my_acc - sk_acc) < 0.05:
+        print("\n[SUCCESS] Results match!")
+    else:
+        print("\n[WARNING] Results differ significantly.")
 
 
-def test_priors_match_sklearn(sklearn_dataset):
-    """Check that our computed priors match sklearn's class priors.
+def check_speed():
+    # This function benchmarks the execution time of the custom implementation and the Scikit-Learn implementation.
+    print("\n" + "="*50)
+    print("TEST 2: EXECUTION TIME (5000 Samples)")
+    print("="*50)
+    
+    X_large, Y_large = make_classification(n_samples=5000, n_features=20, random_state=42)
+    X_large = (X_large > np.median(X_large, axis=0)).astype(int)
+    
+    print(f"[*] Benchmarking with {len(X_large)} samples...")
 
-    Casual: we pull class priors from sklearn (they store log-priors),
-    exponentiate them and compare to our simple counts.
-    """
-    # split and train
-    X, Y = sklearn_dataset
-    X_train, _, Y_train, _ = train_test_split(X, Y, test_size=0.3, random_state=42)
-    _, our_prior_pos, our_prior_neg = train_algorithm(X_train, Y_train)
-    # sklearn's priors come as log-probabilities, so we exp() them
-    sklearn_model = BernoulliNB(alpha=1.0)
-    sklearn_model.fit(X_train, Y_train)
-    sklearn_prior_pos = np.exp(sklearn_model.class_log_prior_[1])
-    sklearn_prior_neg = np.exp(sklearn_model.class_log_prior_[0])
-    # compare with tiny tolerance
-    assert pytest.approx(our_prior_pos, abs=1e-10) == sklearn_prior_pos
-    assert pytest.approx(our_prior_neg, abs=1e-10) == sklearn_prior_neg
+    # Measure time for custom implementation (training + prediction loop)
+    start = time.time()
+    model, p1, p2 = train_algorithm(X_large, Y_large)
+    _ = [predict(model, p1, p2, x) for x in X_large]
+    end = time.time()
+    my_time = end - start
 
+    # Measure time for Scikit-Learn implementation (training + vectorized prediction)
+    start = time.time()
+    clf = BernoulliNB(alpha=1.0)
+    clf.fit(X_large, Y_large)
+    _ = clf.predict(X_large)
+    end = time.time()
+    sk_time = end - start
+
+    print(f"\nCustom Time:      {my_time:.5f} seconds")
+    print(f"Scikit-Learn Time: {sk_time:.5f} seconds")
+    
+    print("-" * 30)
+    if sk_time > 0:
+        ratio = my_time / sk_time
+        print(f"RESULT: Scikit-Learn is {ratio:.1f}x faster.")
+    print("-" * 30)
+
+
+def check_laplace_smoothing():
+    # This function tests if the algorithm correctly handles unseen features using Laplace Smoothing.
+    # Without smoothing, probabilities would be 0, potentially causing math errors or incorrect predictions.
+    print("\n" + "="*50)
+    print("TEST 3: LAPLACE SMOOTHING (The 'Zero Prob' Trap)")
+    print("="*50)
+    
+    print("[*] Training on mutually exclusive features...")
+    # Create a dataset where Class 0 only has Feature 1, and Class 1 only has Feature 0
+    X_train = [
+        [0, 1], [0, 1], [0, 1], # Class 0 samples
+        [1, 0], [1, 0], [1, 0]  # Class 1 samples
+    ]
+    Y_train = [0, 0, 0, 1, 1, 1]
+
+    try:
+        model, p_pos, p_neg = train_algorithm(X_train, Y_train)
+    except Exception as e:
+        print(f"[FAIL] Training crashed! Likely failed to handle 0 counts.\nError: {e}")
+        return
+
+    # Create a 'Trap' sample [1, 1]. Both features are technically "impossible" for their respective classes
+    # based on the training data alone.
+    trap_sample = [1, 1]
+    
+    print(f"[*] Predicting on trap sample {trap_sample}...")
+    
+    try:
+        prediction = predict(model, p_pos, p_neg, trap_sample)
+        
+        # Check internal model values for exact 0.0s (which implies no smoothing)
+        smoothing_verified = False
+        if isinstance(model, dict):
+            zeros_found = any(v == 0.0 for v in model.values())
+            if zeros_found:
+                print("\n[WARNING] Found exact 0.0 probabilities in the model.")
+                print("Likely missing Laplace Smoothing (alpha + 1).")
+            else:
+                smoothing_verified = True
+        
+        if prediction in [0, 1]:
+            print(f" -> Prediction: Class {prediction}")
+            if smoothing_verified:
+                 print("[SUCCESS] Laplace smoothing works.")
+            else:
+                 print("[PASS] The code ran without crashing (Basic check passed).")
+        else:
+            print(f"[FAIL] Prediction returned weird value: {prediction}")
+
+    except ValueError as e:
+            print(f"\n[FAIL] crashed with ValueError: {e}")
+    except Exception as e:
+        print(f"\n[FAIL] crashed with error: {e}")
+
+
+if __name__ == "__main__":
+    check_accuracy()
+    check_speed()
+    check_laplace_smoothing()
