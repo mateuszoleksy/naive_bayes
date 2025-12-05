@@ -1,26 +1,17 @@
 # Naive Bayes Classifier
 import math
 
-''' So there is a problem with encoding the bigger features like length, the use the 50/50'''
-
 def is_number(s):
     try:
         float(s)
         return True
     except:
         return False
-    
-# Funkcja normalizacji etykiet Y (zachowana z Twojego szablonu)
-def normalize_probs(probs):
-    total = sum(probs)
-    if total == 0:
-        return [1.0 / len(probs)] * len(probs)
-    return [p / total for p in probs]
 
 def normalize_feature_by_max_half(X):
     """
-    Normalizuje wszystkie cechy X do formatu binarnego (0/1).
-    Wymaga, aby X było macierzą. Oblicza globalne maksimum i stosuje próg Max/2.
+    Normalize the features in X to binary (0/1) using threshold Max/2.
+    1 if value >= Max/2 else 0
     """
     if not X:
         return []
@@ -43,14 +34,17 @@ def normalize_feature_by_max_half(X):
 
 def read_data(x_path="input_x.txt", y_path="input_y.txt"):
     """
-    Wczytuje X i Y. Dane X są normalizowane binarnie (0/1) za pomocą progu Max/2.
+    read X and Y from files.
+    X: features, CSV format, first row may be feature names
+    Y: labels, one per line, values 0 or 1
+    Returns: X (list of lists), Y (list), feature_names (list or None)
     """
     feature_names = None
     X = []
     with open(x_path, "r", encoding="utf-8") as fx:
         lines = [line.strip() for line in fx if line.strip() != ""]
         if not lines:
-            raise ValueError("Plik X jest pusty.")
+            raise ValueError("File X is empty.")
             
         first_tokens = [tok.strip() for tok in lines[0].split(",")]
         data_lines = lines
@@ -62,7 +56,7 @@ def read_data(x_path="input_x.txt", y_path="input_y.txt"):
         for ln in data_lines:
             toks = [tok.strip() for tok in ln.split(",")]
             if not all(is_number(tok) for tok in toks):
-                raise ValueError(f"Nie wszystkie wartości cech są liczbami w wierszu: {ln}")
+                raise ValueError(f"Not all feature values are numbers in row: {ln}")
             X.append([float(tok) for tok in toks])
 
     X = normalize_feature_by_max_half(X)
@@ -75,26 +69,26 @@ def read_data(x_path="input_x.txt", y_path="input_y.txt"):
                 continue
             tok = line.split(",")[0].strip()
             if not is_number(tok):
-                raise ValueError(f"Etykieta musi być liczbą (0/1), znaleziono: {tok}")
+                raise ValueError(f"Label must be a number (0/1), found: {tok}")
             val = float(tok)
             if val not in (0.0, 1.0):
-                raise ValueError(f"Etykiety muszą być 0 lub 1. Znaleziono: {val}")
+                raise ValueError(f"Labels must be 0 or 1. Found: {val}")
             Y.append(int(val))
             
     if len(X) != len(Y):
-        raise ValueError(f"Liczba wierszy X ({len(X)}) nie zgadza się z liczbą etykiet Y ({len(Y)}).")
+        raise ValueError(f"Number of samples in X ({len(X)}) and Y ({len(Y)}) do not match.")
 
     return X, Y, feature_names
 
 def train_algorithm(X, Y, smoothing=1.0):
     """
-    Trenuje NB na danych binarnych cechach (0/1).
-    Zwraca: (model, prior_pos, prior_neg)
+    Trains NB on binary feature data (0/1).
+    Returns: (model, prior_pos, prior_neg)
     model: dict mapping feature_index -> {"positive": P(feature=1|class=1), "negative": P(feature=1|class=0)}
     """
     n_samples = len(Y)
     if n_samples == 0:
-        raise ValueError("Brak próbek do trenowania.")
+        raise ValueError("No samples to train on.")
     n_features = len(X[0])
 
     # liczba pozytywnych i negatywnych przykładów
@@ -114,7 +108,6 @@ def train_algorithm(X, Y, smoothing=1.0):
                     count_pos += 1
                 else:
                     count_neg += 1
-        # Laplace smoothing (binary feature): (count + alpha) / (N_class + 2*alpha)
         if num_pos > 0:
             pos_prob = (count_pos + smoothing) / (num_pos + 2 * smoothing)
         else:
@@ -124,16 +117,14 @@ def train_algorithm(X, Y, smoothing=1.0):
             neg_prob = (count_neg + smoothing) / (num_neg + 2 * smoothing)
         else:
             neg_prob = 0.5
-
         model[j] = {"positive": pos_prob, "negative": neg_prob}
-
     return model, prior_pos, prior_neg
 
 def predict(model, prior_pos, prior_neg, x_test):
     """
-    x_test: pojedynczy wektor cech (lista wartości 0/1 długości n_features)
-    Zwraca 1 lub 0 (przewidywana klasa).
-    Używa log-probabilities, aby uniknąć underflow.
+    x_test: single feature vector (list of 0/1 values of length n_features)
+    Returns 1 or 0 (predicted class).
+    Uses log-probabilities to avoid underflow (it exchanges products into sums (logarithms)).
     """
     if prior_pos == 0:
         return 0
@@ -146,7 +137,7 @@ def predict(model, prior_pos, prior_neg, x_test):
     for j, val in enumerate(x_test):
         feat = model.get(j)
         if feat is None:
-            raise KeyError(f"Brak informacji o cesze {j} w modelu.")
+            raise KeyError(f"No information about feature {j} in the model.")
         p_pos = feat["positive"]
         p_neg = feat["negative"]
         # zabezpieczenie przed log(0)
@@ -163,12 +154,10 @@ def predict(model, prior_pos, prior_neg, x_test):
     return 1 if pos_log > neg_log else 0
 
 if __name__ == "__main__":
-    # przykład użycia; jeśli pliki nie istnieją, możesz zamiast tego zdefiniować mały zestaw danych tutaj:
     try:
         X, Y, feature_names = read_data()
     except Exception as e:
-        print("Błąd przy wczytywaniu danych:", e)
-        # przykładowy zbiór
+        print("Error loading data:", e)
         X = [
             [1, 0, 1],
             [1, 1, 0],
@@ -177,7 +166,7 @@ if __name__ == "__main__":
         ]
         Y = [1, 1, 0, 0]
         feature_names = None
-        print("Używam przykładowego zbioru danych.")
+        print("Using example dataset.")
 
     model, prior_pos, prior_neg = train_algorithm(X, Y, smoothing=1.0)
     print("Prior positive:", prior_pos, "Prior negative:", prior_neg)
@@ -186,6 +175,6 @@ if __name__ == "__main__":
         name = f"feat_{k}" if not feature_names else feature_names[k]
         print(f" {name}: {v}")
 
-    # test predykcji na pierwszym wierszu
+    # test prediction on the first row
     pred = predict(model, prior_pos, prior_neg, X[0])
-    print("Predykcja dla pierwszego przykładu:", pred, "prawdziwa etykieta:", Y[0])
+    print("Prediction for the first example:", pred, "true label:", Y[0])
