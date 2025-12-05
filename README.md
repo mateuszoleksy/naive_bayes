@@ -82,10 +82,3 @@ Contributing
 
 License
 - The project includes a `LICENSE` file in the repository root — follow its terms.
-
----
-
-Next steps I can do for you:
-- run the test suite (`pytest`) in the repository,
-- add an example input format section for `input_x.txt` and `input_y.txt`,
-- create a small CLI wrapper for running the classifier against arbitrary input files.
